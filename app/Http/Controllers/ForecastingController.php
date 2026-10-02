@@ -8,6 +8,24 @@ use Illuminate\Http\Request;
 
 class ForecastingController extends Controller
 {
+    public function status(Request $request, ForecastService $forecastService)
+    {
+        $confidence = (int) $request->query('confidence', 95);
+        $confidence = in_array($confidence, [90, 95, 99], true) ? $confidence : 95;
+        $months = match ($request->query('years', 'all')) {
+            '1' => 12,
+            '3' => 36,
+            default => 72,
+        };
+        $metric = match ($request->query('metric', 'demand')) {
+            'revenue' => 'revenue',
+            'product_sales' => 'product_sales',
+            default => 'demand',
+        };
+
+        return response()->json($forecastService->snapshotStatus($confidence, $months, $metric));
+    }
+
     public function index(Request $request, ForecastService $forecastService)
     {
         $confidence = (int) $request->query('confidence', 95);

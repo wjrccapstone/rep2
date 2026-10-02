@@ -114,6 +114,7 @@ Route::middleware(['auth', 'no-back-cache'])->group(function () {
         Route::middleware('role:admin')->group(function () {
             Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
             Route::get('/forecasting', [ForecastingController::class, 'index'])->name('forecasting.index');
+            Route::get('/forecasting/status', [ForecastingController::class, 'status'])->name('forecasting.status');
             Route::get('/users/activity-log', [UserManagementController::class, 'activityLog'])->name('users.activity-log');
             Route::get('/users/activity-log/export', [UserManagementController::class, 'exportActivityLog'])->name('users.activity-log.export');
             Route::get('/users/password-reset-log', [UserManagementController::class, 'passwordResetLog'])->name('users.password-reset-log');

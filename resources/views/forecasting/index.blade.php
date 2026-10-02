@@ -55,7 +55,13 @@
     @if (! $result['hasData'])
         <x-coming-soon
             :title="$result['forecastPending'] ?? false ? 'Forecast is being prepared' : 'Not enough data yet'"
-            :description="$result['forecastPending'] ?? false ? 'Waiting for the forecast worker. This page checks again every 20 seconds for up to 10 minutes.' : 'At least 24 monthly data points are required to fit the seasonal Python SARIMA model.'" />
+            :description="$result['forecastPending'] ?? false ? 'Waiting for the forecast worker. This page checks quietly and will show the graph when it is ready.' : 'At least 24 monthly data points are required to fit the seasonal Python SARIMA model.'" />
+        @if ($result['forecastPending'] ?? false)
+            <p id="forecast-poll-timeout" class="mt-3 hidden text-center text-sm text-slate-500">
+                This run is taking longer than expected.
+                <button type="button" data-forecast-retry class="font-semibold text-brand-700 hover:underline">Check again</button>
+            </p>
+        @endif
     @else
         <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div class="flex flex-wrap items-center gap-2">
@@ -1213,10 +1219,46 @@
             (() => {
                 const key = `forecast-refresh:${window.location.pathname}${window.location.search}`;
                 const attempts = Number(sessionStorage.getItem(key) || 0);
-                if (attempts < 30) {
-                    sessionStorage.setItem(key, String(attempts + 1));
-                    window.setTimeout(() => window.location.reload(), 20000);
+                const statusUrl = @js(route('forecasting.status', ['metric' => $metric, 'years' => $years, 'confidence' => $result['confidence']]));
+                const timeoutMessage = document.getElementById('forecast-poll-timeout');
+                const retryButton = document.querySelector('[data-forecast-retry]');
+                let checks = attempts;
+
+                async function pollForecastStatus() {
+                    if (checks >= 30) {
+                        timeoutMessage?.classList.remove('hidden');
+                        return;
+                    }
+
+                    checks += 1;
+                    sessionStorage.setItem(key, String(checks));
+
+                    try {
+                        const response = await fetch(statusUrl, {
+                            headers: { Accept: 'application/json' },
+                            credentials: 'same-origin',
+                            cache: 'no-store',
+                        });
+                        if (response.ok && (await response.json()).ready) {
+                            sessionStorage.removeItem(key);
+                            window.location.reload();
+                            return;
+                        }
+                    } catch (error) {
+                        // Keep the pending state if a single status request fails.
+                    }
+
+                    window.setTimeout(pollForecastStatus, 20000);
                 }
+
+                retryButton?.addEventListener('click', () => {
+                    checks = 0;
+                    sessionStorage.removeItem(key);
+                    timeoutMessage.classList.add('hidden');
+                    pollForecastStatus();
+                });
+
+                window.setTimeout(pollForecastStatus, 5000);
             })();
         </script>
     @else

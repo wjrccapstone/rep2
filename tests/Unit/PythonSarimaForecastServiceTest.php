@@ -333,4 +333,40 @@ class PythonSarimaForecastServiceTest extends TestCase
         $this->assertSame(1, $details['seasonalDiffOrder']);
         $this->assertFalse($details['accuracyAvailable']);
     }
+
+    public function test_snapshot_status_changes_to_ready_only_after_forecast_and_diagnostics_are_cached(): void
+    {
+        $values = range(120, 143);
+        $fingerprint = hash('crc32', implode(',', $values));
+        $forecastKey = 'forecast:python:demand:12:95:'.$fingerprint;
+        $diagnosticKey = 'forecast:diagnostics:demand:12:'.$fingerprint;
+        $generatedKey = 'forecast:generated:demand:12:95:'.$fingerprint;
+        Cache::forget($forecastKey);
+        Cache::forget($diagnosticKey);
+        Cache::forget($generatedKey);
+
+        $service = new class($values) extends ForecastService {
+            public function __construct(private array $values) {}
+
+            protected function monthlySeries(string $metric): Collection
+            {
+                return collect($this->values)->values()->map(fn ($value, $index) => [
+                    'date' => now()->startOfMonth()->subMonths(count($this->values) - $index - 1),
+                    'month' => (int) now()->startOfMonth()->subMonths(count($this->values) - $index - 1)->format('n'),
+                    'value' => $value,
+                ]);
+            }
+        };
+
+        $this->assertFalse($service->snapshotStatus(95, 12, 'demand')['ready']);
+
+        $generatedAt = now()->toIso8601String();
+        Cache::put($forecastKey, [['value' => 125]]);
+        Cache::put($diagnosticKey, ['diagnostics' => ['aic' => 100]]);
+        Cache::put($generatedKey, $generatedAt);
+
+        $status = $service->snapshotStatus(95, 12, 'demand');
+        $this->assertTrue($status['ready']);
+        $this->assertSame($generatedAt, $status['generatedAt']);
+    }
 }

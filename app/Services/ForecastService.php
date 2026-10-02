@@ -233,6 +233,23 @@ class ForecastService
         return true;
     }
 
+    public function snapshotStatus(int $confidence, int $forecastMonths, string $metric): array
+    {
+        $metric = in_array($metric, ['revenue', 'product_sales'], true) ? $metric : 'demand';
+        $ys = $this->monthlySeries($metric)->pluck('value')->all();
+
+        if (count($ys) < self::SEASONAL_PERIOD * 2) {
+            return ['ready' => true, 'generatedAt' => null];
+        }
+
+        $ready = $this->hasCachedPythonSnapshot($metric, $ys, $forecastMonths, $confidence);
+
+        return [
+            'ready' => $ready,
+            'generatedAt' => $ready ? $this->cachedPythonGeneratedAt($metric, $ys, $forecastMonths, $confidence) : null,
+        ];
+    }
+
     private function queuePythonSnapshot(string $metric, array $ys, int $forecastMonths, int $confidence): void
     {
         $lockKey = 'forecast:queue:'.$metric.':'.$forecastMonths.':'.$confidence.':'.$this->seriesFingerprint($ys);
