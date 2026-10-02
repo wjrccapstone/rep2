@@ -55,7 +55,7 @@
     @if (! $result['hasData'])
         <x-coming-soon
             :title="$result['forecastPending'] ?? false ? 'Forecast is being prepared' : 'Not enough data yet'"
-            :description="$result['forecastPending'] ?? false ? 'The Python forecasting service is processing the latest data. This page will refresh automatically.' : 'At least 24 monthly data points are required to fit the seasonal Python SARIMA model.'" />
+            :description="$result['forecastPending'] ?? false ? 'Waiting for the forecast worker. This page checks again every 20 seconds for up to 10 minutes.' : 'At least 24 monthly data points are required to fit the seasonal Python SARIMA model.'" />
     @else
         <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div class="flex flex-wrap items-center gap-2">
@@ -102,7 +102,7 @@
                         @endforeach
                     </select>
                 </div>
-                <button type="submit" name="refresh_forecast" value="1"
+                <button type="submit" name="refresh_forecast" value="1" onclick="sessionStorage.removeItem('forecast-refresh:' + window.location.pathname + window.location.search)"
                     class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700">
                     <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7Z" /></svg>
                     Run Forecast
@@ -426,7 +426,7 @@
                     </div>
                     <div class="flex items-center justify-between gap-3 sm:justify-start">
                         <p class="text-xs text-slate-400">Model: {{ $result['modelOrder'] }}</p>
-                        <button type="submit" name="refresh_forecast" value="1"
+                        <button type="submit" name="refresh_forecast" value="1" onclick="sessionStorage.removeItem('forecast-refresh:' + window.location.pathname + window.location.search)"
                             class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700">
                             <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7Z" /></svg>
                             Run Forecast
@@ -1213,9 +1213,9 @@
             (() => {
                 const key = `forecast-refresh:${window.location.pathname}${window.location.search}`;
                 const attempts = Number(sessionStorage.getItem(key) || 0);
-                if (attempts < 12) {
+                if (attempts < 30) {
                     sessionStorage.setItem(key, String(attempts + 1));
-                    window.setTimeout(() => window.location.reload(), 15000);
+                    window.setTimeout(() => window.location.reload(), 20000);
                 }
             })();
         </script>
