@@ -13,7 +13,7 @@ jobs:
   trigger: post-deployment
   action:
     execute:
-      command: after_deploy
+      command: php artisan migrate --force
 enableDatabase: true
 annotations:
   anybuild.run/config:
