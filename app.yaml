@@ -20,7 +20,7 @@ jobs:
     execute:
       command: php
       cli_args:
-        - artisan
+        - /app/artisan
         - queue:work
         - database
         - --stop-when-empty
