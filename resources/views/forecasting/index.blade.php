@@ -175,7 +175,7 @@
                 <div class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
                     <p class="text-xs font-medium text-slate-400">Model Performance</p>
                     <p class="mt-1 text-lg font-semibold text-slate-800">
-                        {{ $result['accuracyAvailable'] ? 'MAPE '.number_format($result['mape'], 1).'%' : 'Not enough history' }}
+                        {{ $result['accuracyAvailable'] ? 'MAPE '.number_format($result['mape'], 1).'%' : 'Backtest unavailable' }}
                     </p>
                     @if ($result['accuracyAvailable'])
                         <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
@@ -183,7 +183,7 @@
                         </div>
                         <p class="mt-2 text-xs text-slate-400">Backtested on {{ $result['holdoutMonths'] }} held-out months</p>
                     @else
-                        <p class="mt-1 text-xs text-slate-400">Runs once more history builds up</p>
+                        <p class="mt-1 text-xs text-slate-400">Forecast generated; hold-out accuracy is not calculated for this Python snapshot.</p>
                     @endif
                 </div>
             </div>
