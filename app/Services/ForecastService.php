@@ -62,6 +62,9 @@ class ForecastService
         // queued background job and cached so the HTTP request stays fast and under the platform timeout.
         $pythonForecast = $this->cachedPythonForecast($metric, $ys, $forecastMonths, $confidence);
         $pythonDiagnostics = $this->cachedPythonDiagnostics($metric, $ys, 12);
+        $fingerprint = $this->seriesFingerprint($ys);
+        $refreshKey = 'forecast:refreshing:'.$metric.':'.$forecastMonths.':'.$confidence.':'.$fingerprint;
+        $refreshFailedKey = 'forecast:refresh-failed:'.$metric.':'.$forecastMonths.':'.$confidence.':'.$fingerprint;
 
         if ((! is_array($pythonForecast) || empty($pythonForecast)) && ! $this->hasCachedPythonSnapshot($metric, $ys, $forecastMonths, $confidence)) {
             $this->queuePythonSnapshot($metric, $ys, $forecastMonths, $confidence);
@@ -193,6 +196,8 @@ class ForecastService
             'sampleSize' => $n,
             'modelOrder' => 'SARIMA (Python)',
             'generatedAt' => $this->cachedPythonGeneratedAt($metric, $ys, $forecastMonths, $confidence),
+            'forecastRefreshing' => Cache::has($refreshKey),
+            'forecastRefreshFailed' => Cache::has($refreshFailedKey),
             'diagnostics' => $pythonDiagnostics['diagnostics'] ?? null,
             'stationary' => $pythonDiagnostics['diagnostics']['stationary'] ?? null,
             'adfPValue' => $pythonDiagnostics['diagnostics']['adf_pvalue'] ?? null,
@@ -223,10 +228,8 @@ class ForecastService
         }
 
         $fingerprint = $this->seriesFingerprint($ys);
-        Cache::forget('forecast:python:'.$metric.':'.$forecastMonths.':'.$confidence.':'.$fingerprint);
-        Cache::forget('forecast:diagnostics:'.$metric.':12:'.$fingerprint);
-        Cache::forget('forecast:generated:'.$metric.':'.$forecastMonths.':'.$confidence.':'.$fingerprint);
-        Cache::forget('forecast:queue:'.$metric.':'.$forecastMonths.':'.$confidence.':'.$fingerprint);
+        Cache::forget('forecast:refresh-failed:'.$metric.':'.$forecastMonths.':'.$confidence.':'.$fingerprint);
+        Cache::put('forecast:refreshing:'.$metric.':'.$forecastMonths.':'.$confidence.':'.$fingerprint, true, now()->addMinutes(10));
 
         $this->queuePythonSnapshot($metric, $ys, $forecastMonths, $confidence);
 
@@ -243,9 +246,14 @@ class ForecastService
         }
 
         $ready = $this->hasCachedPythonSnapshot($metric, $ys, $forecastMonths, $confidence);
+        $fingerprint = $this->seriesFingerprint($ys);
+        $refreshing = Cache::has('forecast:refreshing:'.$metric.':'.$forecastMonths.':'.$confidence.':'.$fingerprint);
+        $failed = Cache::has('forecast:refresh-failed:'.$metric.':'.$forecastMonths.':'.$confidence.':'.$fingerprint);
 
         return [
-            'ready' => $ready,
+            'ready' => $ready && ! $refreshing && ! $failed,
+            'refreshing' => $refreshing,
+            'failed' => $failed,
             'generatedAt' => $ready ? $this->cachedPythonGeneratedAt($metric, $ys, $forecastMonths, $confidence) : null,
         ];
     }

@@ -116,6 +116,17 @@
             </form>
         @endif
 
+        @if ($result['forecastRefreshing'] ?? false)
+            <div id="forecast-refresh-status" role="status" aria-live="polite" class="mb-4 flex items-center gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                <span class="h-2 w-2 animate-pulse rounded-full bg-sky-500"></span>
+                <span data-forecast-refresh-message>The latest forecast is running. The graph below is the last completed result and will update automatically.</span>
+            </div>
+        @elseif ($result['forecastRefreshFailed'] ?? false)
+            <div id="forecast-refresh-status" role="status" aria-live="polite" class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <span data-forecast-refresh-message>The refresh did not complete. The graph below is the last completed result; select Run Forecast to retry.</span>
+            </div>
+        @endif
+
         @if ($isDaily)
             @if (! $daily['hasData'])
                 <x-coming-soon title="No recent daily revenue" description="Paid job orders from the last {{ $daily['days'] }} days will show up here." />
@@ -1214,7 +1225,7 @@
             });
         </script>
     @endif
-    @if ($result['forecastPending'] ?? false)
+    @if (($result['forecastPending'] ?? false) || ($result['forecastRefreshing'] ?? false))
         <script>
             (() => {
                 const key = `forecast-refresh:${window.location.pathname}${window.location.search}`;
@@ -1239,10 +1250,20 @@
                             credentials: 'same-origin',
                             cache: 'no-store',
                         });
-                        if (response.ok && (await response.json()).ready) {
-                            sessionStorage.removeItem(key);
-                            window.location.reload();
-                            return;
+                        if (response.ok) {
+                            const status = await response.json();
+                            if (status.failed) {
+                                sessionStorage.removeItem(key);
+                                const message = document.querySelector('[data-forecast-refresh-message]');
+                                if (message) message.textContent = 'The refresh did not complete. The graph shows the last completed result; select Run Forecast to retry.';
+                                timeoutMessage?.classList.remove('hidden');
+                                return;
+                            }
+                            if (status.ready) {
+                                sessionStorage.removeItem(key);
+                                window.location.reload();
+                                return;
+                            }
                         }
                     } catch (error) {
                         // Keep the pending state if a single status request fails.

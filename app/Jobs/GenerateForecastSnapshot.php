@@ -31,6 +31,9 @@ class GenerateForecastSnapshot implements ShouldQueue
         $service = app(PythonSarimaForecastService::class);
         $fingerprint = hash('crc32', implode(',', $this->series));
         $lockKey = 'forecast:queue:'.$this->metric.':'.$this->forecastMonths.':'.$this->confidence.':'.$fingerprint;
+        $refreshKey = 'forecast:refreshing:'.$this->metric.':'.$this->forecastMonths.':'.$this->confidence.':'.$fingerprint;
+        $refreshFailedKey = 'forecast:refresh-failed:'.$this->metric.':'.$this->forecastMonths.':'.$this->confidence.':'.$fingerprint;
+        $completed = false;
 
         try {
             $report = $service->diagnosticForecastSeries($this->series, $this->forecastMonths, $this->seasonalPeriod, $this->confidence);
@@ -47,9 +50,16 @@ class GenerateForecastSnapshot implements ShouldQueue
 
             if (is_array($forecast) && $forecast !== [] && $diagnostics !== null) {
                 Cache::put('forecast:generated:'.$this->metric.':'.$this->forecastMonths.':'.$this->confidence.':'.$fingerprint, now()->toIso8601String(), now()->addMinutes(60));
+                Cache::forget($refreshKey);
+                Cache::forget($refreshFailedKey);
+                $completed = true;
             }
         } finally {
             Cache::forget($lockKey);
+            if (! $completed && Cache::has($refreshKey)) {
+                Cache::forget($refreshKey);
+                Cache::put($refreshFailedKey, true, now()->addMinutes(10));
+            }
         }
     }
 }

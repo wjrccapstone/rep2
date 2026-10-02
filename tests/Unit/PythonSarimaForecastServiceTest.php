@@ -201,7 +201,7 @@ class PythonSarimaForecastServiceTest extends TestCase
         Queue::assertPushed(GenerateForecastSnapshot::class);
     }
 
-    public function test_refresh_clears_the_selected_snapshot_and_queues_the_requested_confidence(): void
+    public function test_refresh_preserves_the_current_snapshot_and_queues_the_requested_confidence(): void
     {
         $values = range(120, 143);
         $fingerprint = hash('crc32', implode(',', $values));
@@ -228,9 +228,12 @@ class PythonSarimaForecastServiceTest extends TestCase
         };
 
         $this->assertTrue($service->refreshSnapshot(90, 12, 'demand'));
-        $this->assertFalse(Cache::has($forecastKey));
-        $this->assertFalse(Cache::has($diagnosticKey));
-        $this->assertFalse(Cache::has($generatedKey));
+        $this->assertTrue(Cache::has($forecastKey));
+        $this->assertTrue(Cache::has($diagnosticKey));
+        $this->assertTrue(Cache::has($generatedKey));
+        $status = $service->snapshotStatus(90, 12, 'demand');
+        $this->assertFalse($status['ready']);
+        $this->assertTrue($status['refreshing']);
         Queue::assertPushed(GenerateForecastSnapshot::class, fn ($job) => $job->confidence === 90 && $job->series === $values);
     }
 
