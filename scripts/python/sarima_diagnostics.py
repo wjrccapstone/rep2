@@ -125,6 +125,8 @@ def build_forecast(values, steps, seasonal_period, confidence=95):
         'adf_pvalue': round(float(adf_pvalue), 12),
         'stationary': stationary,
         'selected_order': f'SARIMA{selected_order}{selected_seasonal_order}',
+        'order': list(selected_order),
+        'seasonal_order': list(selected_seasonal_order),
         'aic': round(float(selected_result.aic), 6),
         'bic': round(float(selected_result.bic), 6),
         'ljung_box_pvalue': round(float(ljung_pvalue), 12),

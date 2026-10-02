@@ -64,8 +64,8 @@ class ForecastingController extends Controller
         $topProducts = $metric === 'product_sales' ? $forecastService->topProducts() : [];
         $topEarners = $metric === 'revenue' ? $forecastService->topEarners() : [];
         $daily = $granularity === 'daily' ? $forecastService->dailyRevenue(30) : null;
-        // "View Details" describes whatever the chart is currently showing: the 6-year monthly
-        // forecast, or — in the Sales Revenue → Daily view — the trailing daily actuals.
+        // "View Details" describes the selected monthly forecast horizon, or — in the Sales
+        // Revenue → Daily view — the trailing daily actuals.
         $viewDetails = $granularity === 'daily'
             ? $forecastService->dailyRevenueDetails(30)
             : $forecastService->viewDetails($confidence, $metric, $result);

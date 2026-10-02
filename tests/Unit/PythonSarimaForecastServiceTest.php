@@ -284,4 +284,52 @@ class PythonSarimaForecastServiceTest extends TestCase
         Http::assertSent(fn ($request) => $request->url() === 'https://sarima.example.test/forecast'
             && $request['confidence'] === 90);
     }
+
+    public function test_view_details_reports_the_python_model_and_diagnostics_used_by_the_forecast(): void
+    {
+        $history = collect(range(1, 24))->map(fn ($value, $index) => [
+            'date' => now()->startOfMonth()->subMonths(23 - $index),
+            'month' => (int) now()->startOfMonth()->subMonths(23 - $index)->format('n'),
+            'value' => $value,
+        ]);
+        $forecastBand = collect(range(1, 24))->map(fn ($value, $index) => [
+            'date' => now()->startOfMonth()->addMonths($index),
+            'value' => $value * 2,
+            'lower' => $value * 1.8,
+            'upper' => $value * 2.2,
+        ]);
+        $service = new class($history) extends ForecastService {
+            public function __construct(private Collection $history) {}
+
+            protected function monthlySeries(string $metric): Collection
+            {
+                return $this->history;
+            }
+        };
+
+        $details = $service->viewDetails(95, 'revenue', [
+            'hasData' => true,
+            'forecastBand' => $forecastBand,
+            'diagnostics' => [
+                'selected_order' => 'SARIMA(0, 1, 1)(0, 1, 1, 12)',
+                'order' => [0, 1, 1],
+                'seasonal_order' => [0, 1, 1, 12],
+                'adf_statistic' => -2.345,
+                'adf_pvalue' => 0.17,
+                'stationary' => false,
+                'aic' => 953.942,
+                'bic' => 959.428,
+                'candidate_orders_checked' => 4,
+            ],
+        ]);
+
+        $this->assertSame('SARIMA(0, 1, 1)(0, 1, 1, 12)', $details['modelOrder']);
+        $this->assertSame(953.942, $details['aic']);
+        $this->assertSame(959.428, $details['bic']);
+        $this->assertSame(0.17, $details['adfPValue']);
+        $this->assertFalse($details['isStationary']);
+        $this->assertSame(1, $details['diffOrder']);
+        $this->assertSame(1, $details['seasonalDiffOrder']);
+        $this->assertFalse($details['accuracyAvailable']);
+    }
 }

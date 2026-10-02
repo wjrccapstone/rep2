@@ -59,15 +59,15 @@
     @else
         <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('forecasting.index', ['metric' => 'demand', 'confidence' => $result['confidence']]) }}"
+                <a href="{{ route('forecasting.index', ['metric' => 'demand', 'confidence' => $result['confidence'], 'years' => $years]) }}"
                     class="rounded-full px-4 py-2 text-sm font-semibold transition {{ $metric === 'demand' ? 'bg-teal-300 text-teal-950 shadow-sm' : 'text-slate-700 hover:text-slate-900' }}">
                     Job-Order
                 </a>
-                <a href="{{ route('forecasting.index', ['metric' => 'product_sales', 'confidence' => $result['confidence']]) }}"
+                <a href="{{ route('forecasting.index', ['metric' => 'product_sales', 'confidence' => $result['confidence'], 'years' => $years]) }}"
                     class="rounded-full px-4 py-2 text-sm font-semibold transition {{ $metric === 'product_sales' ? 'bg-teal-300 text-teal-950 shadow-sm' : 'text-slate-700 hover:text-slate-900' }}">
                     Product Sales
                 </a>
-                <a href="{{ route('forecasting.index', ['metric' => 'revenue', 'confidence' => $result['confidence']]) }}"
+                <a href="{{ route('forecasting.index', ['metric' => 'revenue', 'confidence' => $result['confidence'], 'years' => $years]) }}"
                     class="rounded-full px-4 py-2 text-sm font-semibold transition {{ $metric === 'revenue' ? 'bg-teal-300 text-teal-950 shadow-sm' : 'text-slate-700 hover:text-slate-900' }}">
                     Sales Revenue
                 </a>
@@ -598,7 +598,7 @@
                 @if ($result['accuracyAvailable'])
                     Model trained on earlier history, tested against the most recent {{ $result['holdoutMonths'] }} held-out months.
                 @else
-                    Not enough history yet to run a hold-out accuracy check.
+                    Hold-out accuracy is not calculated for this Python forecast snapshot.
                 @endif
             </p>
 
@@ -813,47 +813,31 @@
                         {{-- Stationarity --}}
                         <div data-vd-panel="stationarity" class="hidden">
                             <div class="flex items-center gap-2">
-                                <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold {{ $vd['isStationary'] ? 'bg-teal-50 text-teal-700' : 'bg-amber-50 text-amber-700' }}">
-                                    {{ $vd['isStationary'] ? 'Likely stationary' : 'Non-stationary — differencing applied' }}
+                                <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold {{ $vd['isStationary'] === null ? 'bg-slate-100 text-slate-600' : ($vd['isStationary'] ? 'bg-teal-50 text-teal-700' : 'bg-amber-50 text-amber-700') }}">
+                                    {{ $vd['isStationary'] === null ? 'ADF result unavailable' : ($vd['isStationary'] ? 'ADF indicates stationarity' : 'ADF indicates non-stationarity') }}
                                 </span>
                             </div>
                             <p class="mt-3 text-sm leading-relaxed text-slate-600">
-                                Comparing the first and second half of the {{ $vd['historyMonths'] }}-month history. A large shift in the
-                                mean or variance across the two halves is the usual sign that the series must be differenced before modelling.
+                                The Python model runs the Augmented Dickey–Fuller test on {{ $vd['historyMonths'] }} monthly observations.
+                                A p-value below 0.05 is evidence against a unit root. The selected SARIMA model applies the differencing shown below.
                             </p>
 
                             <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                                 <div class="rounded-xl border border-slate-200 bg-white p-4">
-                                    <p class="text-xs text-slate-400">1st-half Mean</p>
-                                    <p class="mt-1 text-base font-semibold text-slate-800">{{ $vdFmt($vd['firstHalfMean']) }}</p>
+                                    <p class="text-xs text-slate-400">ADF statistic</p>
+                                    <p class="mt-1 text-base font-semibold text-slate-800">{{ $vd['adfStatistic'] !== null ? number_format($vd['adfStatistic'], 4) : '—' }}</p>
                                 </div>
                                 <div class="rounded-xl border border-slate-200 bg-white p-4">
-                                    <p class="text-xs text-slate-400">2nd-half Mean</p>
-                                    <p class="mt-1 text-base font-semibold text-slate-800">{{ $vdFmt($vd['secondHalfMean']) }}</p>
+                                    <p class="text-xs text-slate-400">ADF p-value</p>
+                                    <p class="mt-1 text-base font-semibold text-slate-800">{{ $vd['adfPValue'] !== null ? number_format($vd['adfPValue'], 4) : '—' }}</p>
                                 </div>
                                 <div class="rounded-xl border border-slate-200 bg-white p-4">
-                                    <p class="text-xs text-slate-400">Mean Shift</p>
-                                    <p class="mt-1 text-base font-semibold text-slate-800">{{ $vdPct($vd['meanShiftPercent']) }}</p>
+                                    <p class="text-xs text-slate-400">Non-seasonal differencing (d)</p>
+                                    <p class="mt-1 text-base font-semibold text-slate-800">{{ $vd['diffOrder'] ?? '—' }}</p>
                                 </div>
                                 <div class="rounded-xl border border-slate-200 bg-white p-4">
-                                    <p class="text-xs text-slate-400">Variance Shift</p>
-                                    <p class="mt-1 text-base font-semibold text-slate-800">{{ $vdPct($vd['varShiftPercent']) }}</p>
-                                </div>
-                                <div class="rounded-xl border border-slate-200 bg-white p-4">
-                                    <p class="text-xs text-slate-400">1st-half SD</p>
-                                    <p class="mt-1 text-base font-semibold text-slate-800">{{ $vdFmt($vd['firstHalfSd'], 2) }}</p>
-                                </div>
-                                <div class="rounded-xl border border-slate-200 bg-white p-4">
-                                    <p class="text-xs text-slate-400">2nd-half SD</p>
-                                    <p class="mt-1 text-base font-semibold text-slate-800">{{ $vdFmt($vd['secondHalfSd'], 2) }}</p>
-                                </div>
-                                <div class="rounded-xl border border-slate-200 bg-white p-4">
-                                    <p class="text-xs text-slate-400">Differencing (d)</p>
-                                    <p class="mt-1 text-base font-semibold text-slate-800">{{ $vd['diffOrder'] }}</p>
-                                </div>
-                                <div class="rounded-xl border border-slate-200 bg-white p-4">
-                                    <p class="text-xs text-slate-400">Seasonal Diff (D), s={{ $vd['seasonalPeriod'] }}</p>
-                                    <p class="mt-1 text-base font-semibold text-slate-800">{{ $vd['seasonalDiffOrder'] }}</p>
+                                    <p class="text-xs text-slate-400">Seasonal differencing (D), s={{ $vd['seasonalPeriod'] }}</p>
+                                    <p class="mt-1 text-base font-semibold text-slate-800">{{ $vd['seasonalDiffOrder'] ?? '—' }}</p>
                                 </div>
                             </div>
                         </div>
@@ -864,21 +848,22 @@
                                 <div class="rounded-xl border border-slate-200 bg-white p-4">
                                     <p class="text-xs text-slate-400">Selected Model</p>
                                     <p class="mt-1 text-base font-semibold text-slate-800">{{ $vd['modelOrder'] }}</p>
-                                    <p class="mt-1 text-xs text-slate-400">Auto-selected by AICc grid search</p>
+                                    <p class="mt-1 text-xs text-slate-400">Python SARIMA model used by the forecast</p>
                                 </div>
                                 <div class="rounded-xl border border-slate-200 bg-white p-4">
-                                    <p class="text-xs text-slate-400">AICc</p>
-                                    <p class="mt-1 text-base font-semibold text-slate-800">{{ $vd['aicc'] !== null ? number_format($vd['aicc'], 2) : '—' }}</p>
-                                    <p class="mt-1 text-xs text-slate-400">Lower is better (corrected for sample size)</p>
+                                    <p class="text-xs text-slate-400">AIC / BIC</p>
+                                    <p class="mt-1 text-base font-semibold text-slate-800">{{ $vd['aic'] !== null ? number_format($vd['aic'], 2) : '—' }} / {{ $vd['bic'] !== null ? number_format($vd['bic'], 2) : '—' }}</p>
+                                    <p class="mt-1 text-xs text-slate-400">Lower is preferred when comparing models on this series</p>
                                 </div>
                             </div>
+                            <p class="mt-3 text-xs text-slate-400">Compared {{ $vd['candidateOrdersChecked'] ?? '—' }} seasonal SARIMA candidates. AIC/BIC describe model fit, not out-of-sample accuracy.</p>
 
                             <p class="mt-6 text-sm font-bold text-slate-800">Forecast Accuracy (Backtest)</p>
                             <p class="mt-0.5 text-xs text-slate-400">
                                 @if ($vd['accuracyAvailable'])
                                     Trained on earlier history, tested against the most recent {{ $vd['holdoutMonths'] }} held-out months.
                                 @else
-                                    Not enough history yet to run a hold-out accuracy check.
+                                    Hold-out accuracy is not calculated for this Python forecast snapshot.
                                 @endif
                             </p>
 

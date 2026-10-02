@@ -674,18 +674,13 @@ class ForecastService
         ];
     }
 
-    /**
-     * Fixed 6-year horizon (72 months) the "View Details" modal reports against, regardless
-     * of the "Forecast range" the user has picked on the page itself.
-     */
+    /** Fallback horizon when the details modal is requested without a computed page result. */
     private const VIEW_DETAILS_MONTHS = 72;
 
     /**
-     * Backing data for the "View Details" modal on the forecasting page. Unlike the rest of
-     * the page, this panel describes the *forecast* over a fixed 6-year horizon (not the
-     * historical series): central tendency, a calendar-month profile and a year-by-year
-     * summary of what the model projects. Adapts to the selected metric (job-order demand /
-     * product sales / sales revenue).
+     * Backing data for the "View Details" modal. Forecast statistics use the supplied page
+     * result when available, so the modal follows the selected metric and horizon; otherwise
+     * a six-year forecast is computed as a fallback.
      */
     public function viewDetails(int $confidence = 95, string $metric = 'demand', ?array $computedResult = null): array
     {
@@ -764,28 +759,14 @@ class ForecastService
                 ];
             })->values();
 
-        // Stationarity is a property of the *history* that was fed to the model, so this
-        // read stays on the historical series: compare its first and second half — large
-        // shifts in mean or variance are the usual sign that differencing is needed.
         $series = $this->monthlySeries($metric);
-        $hist = $series->pluck('value')->all();
-        $histN = count($hist);
-        $half = max(2, intdiv($histN, 2));
-        $firstHalf = array_slice($hist, 0, $half);
-        $secondHalf = array_slice($hist, $half);
-        $firstMean = array_sum($firstHalf) / count($firstHalf);
-        $secondMean = array_sum($secondHalf) / count($secondHalf);
-        $firstSd = $this->stdDev($firstHalf);
-        $secondSd = $this->stdDev($secondHalf);
-        $meanShiftPercent = $firstMean != 0.0 ? round((($secondMean - $firstMean) / abs($firstMean)) * 100, 1) : null;
-        $varShiftPercent = $firstSd != 0.0 ? round(((($secondSd ** 2) - ($firstSd ** 2)) / ($firstSd ** 2)) * 100, 1) : null;
-
-        $model = $this->fittedModel($metric, $hist);
-        $accuracy = $this->cachedAccuracy($metric, $hist, self::SEASONAL_PERIOD, $model);
-
-        $stationary = ($model->d + $model->D) === 0
-            && ($meanShiftPercent === null || abs($meanShiftPercent) < 20)
-            && ($varShiftPercent === null || abs($varShiftPercent) < 50);
+        $diagnostics = $computed['diagnostics'] ?? [];
+        $order = $diagnostics['order'] ?? [];
+        $seasonalOrder = $diagnostics['seasonal_order'] ?? [];
+        if (($order === [] || $seasonalOrder === []) && preg_match('/SARIMA\((\d+),\s*(\d+),\s*(\d+)\)\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)/', (string) ($diagnostics['selected_order'] ?? ''), $matches)) {
+            $order = array_map('intval', array_slice($matches, 1, 3));
+            $seasonalOrder = array_map('intval', array_slice($matches, 4, 4));
+        }
 
         return [
             'mode' => 'monthly',
@@ -796,9 +777,9 @@ class ForecastService
             'periodLabel' => $periodLabel,
             'horizonYears' => (int) round($n / 12),
             'sampleSize' => $n,
-            'historyMonths' => $histN,
+            'historyMonths' => $series->count(),
 
-            // Central tendency and dispersion (of the 6-year forecast)
+            // Central tendency and dispersion of the selected forecast horizon.
             'mean' => round($mean, 1),
             'median' => round($this->median($ys), 1),
             'stdDev' => round($stdDev, 2),
@@ -812,26 +793,24 @@ class ForecastService
             'annualSummary' => $annualSummary,
 
             // Stationarity
-            'firstHalfMean' => round($firstMean, 1),
-            'secondHalfMean' => round($secondMean, 1),
-            'firstHalfSd' => round($firstSd, 2),
-            'secondHalfSd' => round($secondSd, 2),
-            'meanShiftPercent' => $meanShiftPercent,
-            'varShiftPercent' => $varShiftPercent,
-            'diffOrder' => $model->d,
-            'seasonalDiffOrder' => $model->D,
-            'seasonalPeriod' => $model->s,
-            'isStationary' => $stationary,
+            'diffOrder' => $order[1] ?? null,
+            'seasonalDiffOrder' => $seasonalOrder[1] ?? null,
+            'seasonalPeriod' => $seasonalOrder[3] ?? self::SEASONAL_PERIOD,
+            'adfStatistic' => $diagnostics['adf_statistic'] ?? null,
+            'adfPValue' => $diagnostics['adf_pvalue'] ?? null,
+            'isStationary' => $diagnostics['stationary'] ?? null,
 
             // Model fit
-            'modelOrder' => $model->fitted ? $model->orderLabel() : '—',
-            'aicc' => is_finite($model->aicc) ? round($model->aicc, 2) : null,
-            'accuracyAvailable' => $accuracy['available'],
-            'mae' => $accuracy['mae'],
-            'mse' => $accuracy['mse'] ?? null,
-            'rmse' => $accuracy['rmse'],
-            'mape' => $accuracy['mape'],
-            'holdoutMonths' => $accuracy['holdoutMonths'],
+            'modelOrder' => $diagnostics['selected_order'] ?? '—',
+            'aic' => $diagnostics['aic'] ?? null,
+            'bic' => $diagnostics['bic'] ?? null,
+            'candidateOrdersChecked' => $diagnostics['candidate_orders_checked'] ?? null,
+            'accuracyAvailable' => false,
+            'mae' => null,
+            'mse' => null,
+            'rmse' => null,
+            'mape' => null,
+            'holdoutMonths' => 0,
         ];
     }
 
