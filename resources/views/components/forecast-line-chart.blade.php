@@ -4,6 +4,7 @@
     'valuePrefix' => '',
     'valueSuffix' => '',
     'unitLabel' => '',   // e.g. "orders" / "units" — shown in the hover tooltip
+    'confidence' => 95,
 ])
 
 @php
@@ -86,18 +87,31 @@
 
 <div class="forecast-line-chart w-full"
     data-fc-points="{{ json_encode($points, JSON_UNESCAPED_SLASHES) }}"
-    data-fc-prefix="{{ $valuePrefix }}" data-fc-suffix="{{ $valueSuffix }}" data-fc-unit="{{ $unitLabel }}">
+    data-fc-prefix="{{ $valuePrefix }}" data-fc-suffix="{{ $valueSuffix }}" data-fc-unit="{{ $unitLabel }}"
+    data-fc-confidence="{{ $confidence }}">
 
     {{-- Smart zoom: a slider that zooms into the timeline itself — the plot stays the same
          height, but the x-axis stretches so you can scroll through month-level detail.
          The setting is remembered per browser. --}}
-    <div class="mb-2 flex items-center justify-end gap-2 text-[11px] text-slate-400">
-        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35M11 8v6M8 11h6M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
-        </svg>
-        <span>Smart zoom</span>
-        <input type="range" min="0" max="100" step="1" value="0" data-fc-zoom aria-label="Chart zoom"
-            class="h-1 w-32 cursor-pointer appearance-none rounded-full bg-slate-200 accent-brand-600">
+    <div class="mb-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
+        <label class="flex items-center gap-2">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35M11 8v6M8 11h6M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
+            </svg>
+            <span>Zoom</span>
+            <input type="range" min="0" max="100" step="1" value="0" data-fc-zoom aria-label="Zoom timeline"
+                class="h-1 w-32 cursor-pointer appearance-none rounded-full bg-slate-200 accent-brand-600">
+        </label>
+        <div class="flex flex-wrap items-center gap-4">
+            @if ($fc->isNotEmpty())
+                <label class="flex cursor-pointer items-center gap-2">
+                    <input type="checkbox" checked data-fc-band-toggle class="rounded border-slate-300 text-rose-500 focus:ring-rose-400">
+                    <span>Show {{ $confidence }}% prediction interval</span>
+                </label>
+            @endif
+            <button type="button" data-fc-reset class="rounded-md px-2 py-1 font-medium text-brand-700 hover:bg-brand-50">Reset view</button>
+            <span class="hidden sm:inline">Drag to pan; hover for values</span>
+        </div>
     </div>
 
     <div class="relative h-80" data-fc-plot>
@@ -119,7 +133,7 @@
                         <rect x="{{ $forecastFrac * 100 }}" y="0" width="{{ 100 - $forecastFrac * 100 }}" height="100" fill="#fff1f2" opacity="0.7" />
                     @endif
                     @if ($band !== '')
-                        <polygon points="{{ $band }}" fill="#fb7185" opacity="0.15" />
+                        <polygon points="{{ $band }}" fill="#fb7185" opacity="0.15" data-fc-band />
                     @endif
                     <polyline points="{{ $actualLine }}" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
                     @if ($fc->isNotEmpty())
@@ -163,6 +177,7 @@
         const prefix = root.dataset.fcPrefix || '';
         const suffix = root.dataset.fcSuffix || '';
         const unit = root.dataset.fcUnit ? ' ' + root.dataset.fcUnit : '';
+        const confidence = root.dataset.fcConfidence || '95';
 
         const scroll = root.querySelector('[data-fc-scroll]');
         const track = root.querySelector('[data-fc-track]');
@@ -172,6 +187,9 @@
         const marker = root.querySelector('[data-fc-marker]');
         const tip = root.querySelector('[data-fc-tooltip]');
         const zoom = root.querySelector('[data-fc-zoom]');
+        const bandToggle = root.querySelector('[data-fc-band-toggle]');
+        const band = root.querySelector('[data-fc-band]');
+        const reset = root.querySelector('[data-fc-reset]');
 
         let activeIdx = -1;
 
@@ -200,6 +218,14 @@
         }
         zoom.addEventListener('input', () => applyZoom(zoom.value));
         scroll.addEventListener('scroll', syncXAxis);
+        if (bandToggle && band) {
+            bandToggle.addEventListener('change', () => band.classList.toggle('hidden', !bandToggle.checked));
+        }
+        reset.addEventListener('click', () => {
+            scroll.scrollLeft = 0;
+            zoom.value = 0;
+            applyZoom(0);
+        });
 
         let savedZoom = 0;
         try {
@@ -227,7 +253,7 @@
 
             let text = p.label + '\n';
             if (p.kind === 'forecast') {
-                text += 'Forecast: ' + fmt(p.v) + unit + '\n95% interval: ' + fmt(p.lo) + ' – ' + fmt(p.hi);
+                text += 'Forecast: ' + fmt(p.v) + unit + '\n' + confidence + '% interval: ' + fmt(p.lo) + ' – ' + fmt(p.hi);
             } else {
                 text += 'Actual: ' + fmt(p.v) + unit;
             }
@@ -266,8 +292,29 @@
             else if (target > scroll.scrollLeft + scroll.clientWidth - 20) scroll.scrollLeft = target - scroll.clientWidth + 40;
         }
 
-        overlay.addEventListener('pointermove', (e) => show(nearestIdx(e.clientX)));
-        overlay.addEventListener('pointerleave', hide);
+        let dragX = null;
+        overlay.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
+            dragX = e.clientX;
+            overlay.setPointerCapture(e.pointerId);
+            overlay.classList.add('cursor-grabbing');
+        });
+        overlay.addEventListener('pointermove', (e) => {
+            if (dragX !== null) {
+                scroll.scrollLeft -= e.clientX - dragX;
+                dragX = e.clientX;
+            }
+            show(nearestIdx(e.clientX));
+        });
+        const stopDrag = () => {
+            dragX = null;
+            overlay.classList.remove('cursor-grabbing');
+        };
+        overlay.addEventListener('pointerup', stopDrag);
+        overlay.addEventListener('pointercancel', stopDrag);
+        overlay.addEventListener('pointerleave', () => {
+            if (dragX === null) hide();
+        });
         overlay.addEventListener('focus', () => reveal(activeIdx >= 0 ? activeIdx : 0));
         overlay.addEventListener('blur', hide);
         overlay.addEventListener('keydown', (e) => {

@@ -287,10 +287,18 @@
                 <div class="flex items-start justify-between gap-3">
                     <div>
                         <p class="text-sm font-semibold text-slate-700">
-                            {{ $isDaily ? 'Daily Revenue (last '.$daily['days'].' days)' : 'Monthly Revenue (actual vs. forecasted)' }}
+                            {{ $isDaily ? 'Daily Revenue (last '.$daily['days'].' days)' : 'Revenue timeline: actual vs. forecast' }}
                         </p>
                         <p class="mt-0.5 text-xs text-slate-400">
-                            {{ $isDaily ? $daily['periodLabel'].' — actuals, no forecast' : 'Seasonal peak in '.$result['peakMonth'] }}
+                            @if ($isDaily)
+                                {{ $daily['periodLabel'] }} — actuals, no forecast
+                            @else
+                                History through {{ optional($result['history']->last())['label'] ?? '—' }} &middot;
+                                {{ $result['forecast']->count() }} forecast months &middot; {{ $result['confidence'] }}% interval
+                                @if ($result['generatedAt'])
+                                    &middot; updated {{ \Illuminate\Support\Carbon::parse($result['generatedAt'])->timezone(config('app.timezone'))->format('M j, g:i A') }}
+                                @endif
+                            @endif
                         </p>
                     </div>
                     <div class="flex shrink-0 items-center gap-2">
@@ -315,15 +323,21 @@
                     @if ($isDaily)
                         <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-indigo-300"></span> Daily revenue</span>
                     @else
-                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-slate-800"></span> Historical actual</span>
-                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-indigo-300"></span> Forecasted</span>
-                        <span class="flex items-center gap-1.5"><span class="h-0 w-4 border-t-2 border-dashed border-rose-400"></span> {{ $result['confidence'] }}% confidence interval</span>
+                        <span class="flex items-center gap-1.5"><span class="h-0 w-4 border-t-2 border-blue-600"></span> Historical actual</span>
+                        <span class="flex items-center gap-1.5"><span class="h-0 w-4 border-t-2 border-dashed border-rose-400"></span> SARIMA forecast</span>
+                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-3 rounded-sm bg-rose-200"></span> Prediction interval</span>
                     @endif
                 </div>
 
                 <div class="mt-5">
                     @if (! $isDaily)
-                        <x-revenue-forecast-chart :data="$result['monthlyChart']" />
+                        <x-forecast-line-chart :history="$result['history']" :forecast="$result['forecastBand']"
+                            value-prefix="PHP " :confidence="$result['confidence']" />
+                        <details class="mt-5 border-t border-slate-100 pt-3">
+                            <summary class="cursor-pointer text-sm font-medium text-brand-700">View typical revenue by calendar month</summary>
+                            <p class="mb-3 mt-2 text-xs text-slate-400">Historical and forecast averages grouped by month of year; this profile is seasonal, not chronological.</p>
+                            <x-revenue-forecast-chart :data="$result['monthlyChart']" />
+                        </details>
                     @elseif ($daily['hasData'])
                         <x-revenue-forecast-chart :data="$daily['series']->map(fn ($p) => ['month' => $p['label'], 'actual' => null, 'forecast' => $p['value'], 'ciUpper' => null])" />
                     @else
@@ -448,7 +462,8 @@
                     <div class="mt-4">
                         <x-forecast-line-chart :history="$result['history']" :forecast="$result['forecastBand']"
                             :value-prefix="$metric === 'revenue' ? 'PHP ' : ''"
-                            :unit-label="$metric === 'revenue' ? '' : $unitWord" />
+                            :unit-label="$metric === 'revenue' ? '' : $unitWord"
+                            :confidence="$result['confidence']" />
                     </div>
 
                     <div class="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-500">
