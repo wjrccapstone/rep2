@@ -39,6 +39,15 @@ class ForecastingController extends Controller
 
         $result = $forecastService->compute($confidence, $months, $metric);
 
+        if (! $result['hasData']) {
+            return view('forecasting.index', [
+                'metric' => $metric,
+                'granularity' => $granularity,
+                'result' => $result,
+                'years' => $years,
+            ]);
+        }
+
         // Reuse the same forecast payload for the supporting panels instead of re-running the
         // expensive Python SARIMA fit again for the same metric/horizon on the same page load.
         $revenueResult = $metric === 'revenue' ? $result : $forecastService->compute($confidence, $months, 'revenue');

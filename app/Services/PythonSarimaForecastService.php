@@ -29,7 +29,7 @@ class PythonSarimaForecastService
         return $payload['forecast'];
     }
 
-    public function diagnosticForecastSeries(array $values, int $steps = 12, int $seasonalPeriod = 12): ?array
+    public function diagnosticForecastSeries(array $values, int $steps = 12, int $seasonalPeriod = 12, int $confidence = 95): ?array
     {
         $values = array_values(array_map(fn ($value) => (float) $value, $values));
 
@@ -41,6 +41,7 @@ class PythonSarimaForecastService
             'values' => $values,
             'steps' => $steps,
             'seasonal_period' => $seasonalPeriod,
+            'confidence' => $confidence,
         ]);
     }
 

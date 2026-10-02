@@ -92,7 +92,7 @@ class PythonSarimaForecastServiceTest extends TestCase
             $series[] = round($base * $seasonal * $trend * $noise, 2);
         }
 
-        $report = $service->diagnosticForecastSeries($series, 12, 12);
+        $report = $service->diagnosticForecastSeries($series, 12, 12, 99);
 
         $this->assertIsArray($report);
         $this->assertArrayHasKey('forecast', $report);
@@ -111,7 +111,8 @@ class PythonSarimaForecastServiceTest extends TestCase
         Http::assertSent(fn ($request) => $request->url() === 'https://sarima.example.test/diagnostics'
             && $request->hasHeader('Authorization', 'Bearer test-token')
             && $request['steps'] === 12
-            && $request['seasonal_period'] === 12);
+            && $request['seasonal_period'] === 12
+            && $request['confidence'] === 99);
     }
 
     public function test_it_reuses_the_same_forecast_results_within_one_request(): void
@@ -266,10 +267,8 @@ class PythonSarimaForecastServiceTest extends TestCase
         $lockKey = 'forecast:queue:demand:12:90:'.$fingerprint;
         Cache::put($lockKey, true);
         Http::fake([
-            'https://sarima.example.test/forecast' => Http::response([
-                'forecast' => array_fill(0, 12, ['value' => 125, 'lower' => 100, 'upper' => 150]),
-            ]),
             'https://sarima.example.test/diagnostics' => Http::response([
+                'forecast' => array_fill(0, 12, ['value' => 125, 'lower' => 100, 'upper' => 150]),
                 'diagnostics' => ['selected_order' => 'SARIMA(1,1,1)(1,1,1,12)'],
             ]),
         ]);
@@ -281,7 +280,9 @@ class PythonSarimaForecastServiceTest extends TestCase
         $this->assertTrue(Cache::has('forecast:python:demand:12:90:'.$fingerprint));
         $this->assertTrue(Cache::has('forecast:diagnostics:demand:12:'.$fingerprint));
         $this->assertTrue(Cache::has('forecast:generated:demand:12:90:'.$fingerprint));
-        Http::assertSent(fn ($request) => $request->url() === 'https://sarima.example.test/forecast'
+        Http::assertSentCount(1);
+        Http::assertSent(fn ($request) => $request->url() === 'https://sarima.example.test/diagnostics'
+            && $request['steps'] === 12
             && $request['confidence'] === 90);
     }
 

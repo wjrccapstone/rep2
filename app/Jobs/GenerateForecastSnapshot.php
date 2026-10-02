@@ -33,8 +33,9 @@ class GenerateForecastSnapshot implements ShouldQueue
         $lockKey = 'forecast:queue:'.$this->metric.':'.$this->forecastMonths.':'.$this->confidence.':'.$fingerprint;
 
         try {
-            $forecast = $service->forecastSeries($this->series, $this->forecastMonths, $this->seasonalPeriod, $this->confidence);
-            $diagnostics = $service->diagnosticForecastSeries($this->series, 12, $this->seasonalPeriod);
+            $report = $service->diagnosticForecastSeries($this->series, $this->forecastMonths, $this->seasonalPeriod, $this->confidence);
+            $forecast = $report['forecast'] ?? null;
+            $diagnostics = is_array($report['diagnostics'] ?? null) ? $report['diagnostics'] : null;
 
             if (is_array($forecast) && $forecast !== []) {
                 Cache::put('forecast:python:'.$this->metric.':'.$this->forecastMonths.':'.$this->confidence.':'.$fingerprint, $forecast, now()->addMinutes(60));
