@@ -2,6 +2,7 @@ services:
   - type: web
     name: wjrc-sarima-api
     runtime: python
+    plan: free
     buildCommand: pip install -r scripts/python/requirements.txt
     startCommand: uvicorn scripts.python.api:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
