@@ -23,24 +23,29 @@ class GenerateForecastSnapshot implements ShouldQueue
         public array $series,
         public int $forecastMonths,
         public int $seasonalPeriod = 12,
+        public int $confidence = 95,
     ) {}
 
     public function handle(): void
     {
         $service = app(PythonSarimaForecastService::class);
         $fingerprint = hash('crc32', implode(',', $this->series));
-        $lockKey = 'forecast:queue:'.$this->metric.':'.$this->forecastMonths.':'.$fingerprint;
+        $lockKey = 'forecast:queue:'.$this->metric.':'.$this->forecastMonths.':'.$this->confidence.':'.$fingerprint;
 
         try {
-            $forecast = $service->forecastSeries($this->series, $this->forecastMonths, $this->seasonalPeriod);
+            $forecast = $service->forecastSeries($this->series, $this->forecastMonths, $this->seasonalPeriod, $this->confidence);
             $diagnostics = $service->diagnosticForecastSeries($this->series, 12, $this->seasonalPeriod);
 
             if (is_array($forecast) && $forecast !== []) {
-                Cache::put('forecast:python:'.$this->metric.':'.$this->forecastMonths.':'.$fingerprint, $forecast, now()->addMinutes(60));
+                Cache::put('forecast:python:'.$this->metric.':'.$this->forecastMonths.':'.$this->confidence.':'.$fingerprint, $forecast, now()->addMinutes(60));
             }
 
             if ($diagnostics !== null) {
                 Cache::put('forecast:diagnostics:'.$this->metric.':12:'.$fingerprint, $diagnostics, now()->addMinutes(60));
+            }
+
+            if (is_array($forecast) && $forecast !== [] && $diagnostics !== null) {
+                Cache::put('forecast:generated:'.$this->metric.':'.$this->forecastMonths.':'.$this->confidence.':'.$fingerprint, now()->toIso8601String(), now()->addMinutes(60));
             }
         } finally {
             Cache::forget($lockKey);

@@ -1,5 +1,6 @@
 import hmac
 import os
+from typing import Literal
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -14,6 +15,7 @@ class ForecastRequest(BaseModel):
     values: list[float] = Field(min_length=24)
     steps: int = Field(default=72, ge=1, le=120)
     seasonal_period: int = Field(default=12, ge=2, le=24)
+    confidence: Literal[90, 95, 99] = 95
 
 
 def require_token(authorization: str | None) -> None:
@@ -35,7 +37,7 @@ def health() -> dict[str, str]:
 def forecast(request: ForecastRequest, authorization: str | None = Header(default=None)) -> dict:
     require_token(authorization)
     try:
-        return build_forecast(request.values, request.steps, request.seasonal_period)
+        return build_forecast(request.values, request.steps, request.seasonal_period, request.confidence)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -44,6 +46,6 @@ def forecast(request: ForecastRequest, authorization: str | None = Header(defaul
 def diagnostics(request: ForecastRequest, authorization: str | None = Header(default=None)) -> dict:
     require_token(authorization)
     try:
-        return build_diagnostics(request.values, request.steps, request.seasonal_period)
+        return build_diagnostics(request.values, request.steps, request.seasonal_period, request.confidence)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

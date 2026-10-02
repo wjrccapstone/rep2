@@ -55,7 +55,7 @@
     @if (! $result['hasData'])
         <x-coming-soon
             :title="$result['forecastPending'] ?? false ? 'Forecast is being prepared' : 'Not enough data yet'"
-            :description="$result['forecastPending'] ?? false ? 'The Python forecasting service is processing the latest data. Refresh this page shortly.' : 'Add job orders with planned start dates to unlock demand forecasting.'" />
+            :description="$result['forecastPending'] ?? false ? 'The Python forecasting service is processing the latest data. This page will refresh automatically.' : 'At least 24 monthly data points are required to fit the seasonal Python SARIMA model.'" />
     @else
         <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div class="flex flex-wrap items-center gap-2">
@@ -102,6 +102,11 @@
                         @endforeach
                     </select>
                 </div>
+                <button type="submit" name="refresh_forecast" value="1"
+                    class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700">
+                    <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7Z" /></svg>
+                    Run Forecast
+                </button>
             </form>
         @endif
 
@@ -254,6 +259,23 @@
                         </p>
                     </div>
                 </div>
+
+                <details class="mt-4 border-t border-slate-100 pt-3">
+                    <summary class="cursor-pointer text-sm font-medium text-brand-700">How were these values calculated?</summary>
+                    <p class="mt-3 text-xs leading-5 text-slate-500">
+                        The Python service fits monthly values from {{ $result['sampleSize'] }} data points
+                        @if ($result['history']->isNotEmpty())
+                            through {{ $result['history']->last()['label'] }}
+                        @endif
+                        . It tests {{ $result['diagnostics']['candidate_orders_checked'] ?? 4 }} seasonal SARIMA candidates and uses the one with the lowest AIC. The same selected model produces the forecast and diagnostics.
+                    </p>
+                    <dl class="mt-3 grid grid-cols-1 gap-x-6 gap-y-3 text-xs leading-5 sm:grid-cols-2">
+                        <div><dt class="font-semibold text-slate-700">ADF p-value and stationarity</dt><dd class="text-slate-500">An Augmented Dickey–Fuller unit-root test is run on the monthly history. Below 0.05 is evidence the series is stationary; otherwise it is marked “Needs review.” SARIMA differencing can still model non-stationary history.</dd></div>
+                        <div><dt class="font-semibold text-slate-700">AIC and BIC</dt><dd class="text-slate-500">These compare model fit while penalizing complexity. Lower is preferred when comparing candidates on this same series; values are not a standalone accuracy score.</dd></div>
+                        <div><dt class="font-semibold text-slate-700">Ljung–Box</dt><dd class="text-slate-500">Tests whether fitted-model residuals retain autocorrelation. A p-value above 0.05 means the test did not find significant residual autocorrelation; it does not guarantee forecast accuracy.</dd></div>
+                        <div><dt class="font-semibold text-slate-700">Forecast interval and freshness</dt><dd class="text-slate-500">The selected {{ $result['confidence'] }}% interval is calculated from the model’s forecast distribution. @if ($result['generatedAt']) Last computed {{ \Illuminate\Support\Carbon::parse($result['generatedAt'])->timezone(config('app.timezone'))->format('M j, Y g:i A T') }}. @else The snapshot time is not available yet; run a fresh forecast. @endif</dd></div>
+                    </dl>
+                </details>
             </div>
         @endif
 
@@ -390,7 +412,7 @@
                     </div>
                     <div class="flex items-center justify-between gap-3 sm:justify-start">
                         <p class="text-xs text-slate-400">Model: {{ $result['modelOrder'] }}</p>
-                        <button type="submit"
+                        <button type="submit" name="refresh_forecast" value="1"
                             class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700">
                             <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7Z" /></svg>
                             Run Forecast
@@ -1184,6 +1206,25 @@
                     closeDescriptiveAnalysisModal();
                 }
             });
+        </script>
+    @endif
+    @if ($result['forecastPending'] ?? false)
+        <script>
+            (() => {
+                const key = `forecast-refresh:${window.location.pathname}${window.location.search}`;
+                const attempts = Number(sessionStorage.getItem(key) || 0);
+                if (attempts < 12) {
+                    sessionStorage.setItem(key, String(attempts + 1));
+                    window.setTimeout(() => window.location.reload(), 15000);
+                }
+            })();
+        </script>
+    @else
+        <script>
+            (() => {
+                const key = `forecast-refresh:${window.location.pathname}${window.location.search}`;
+                sessionStorage.removeItem(key);
+            })();
         </script>
     @endif
 </x-app-layout>

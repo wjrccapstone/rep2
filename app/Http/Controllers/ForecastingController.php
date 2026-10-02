@@ -11,6 +11,7 @@ class ForecastingController extends Controller
     public function index(Request $request, ForecastService $forecastService)
     {
         $confidence = (int) $request->query('confidence', 95);
+        $confidence = in_array($confidence, [90, 95, 99], true) ? $confidence : 95;
         $years = $request->query('years', 'all');
         $months = match ($years) {
             '1' => 12,
@@ -22,6 +23,14 @@ class ForecastingController extends Controller
             'product_sales' => 'product_sales',
             default => 'demand',
         };
+
+        if ($request->boolean('refresh_forecast')) {
+            $forecastService->refreshSnapshot($confidence, $months, $metric);
+            $query = $request->query();
+            unset($query['refresh_forecast']);
+
+            return redirect()->route('forecasting.index', $query);
+        }
 
         // Within the Sales Revenue tab, "View by" switches between the monthly forecast (the
         // SARIMA pipeline below) and a plain daily actuals report — the two are independent

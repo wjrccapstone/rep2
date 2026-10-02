@@ -43,7 +43,7 @@ class PythonSarimaForecastServiceTest extends TestCase
             $series[] = round($base * $seasonal * $trend * $noise, 2);
         }
 
-        $forecast = $service->forecastSeries($series, 72, 12);
+        $forecast = $service->forecastSeries($series, 72, 12, 99);
 
         $this->assertIsArray($forecast);
         $this->assertCount(72, $forecast);
@@ -55,7 +55,8 @@ class PythonSarimaForecastServiceTest extends TestCase
             && $request->hasHeader('Authorization', 'Bearer test-token')
             && count($request['values']) === 72
             && $request['steps'] === 72
-            && $request['seasonal_period'] === 12);
+            && $request['seasonal_period'] === 12
+            && $request['confidence'] === 99);
     }
 
     public function test_it_returns_box_jenkins_diagnostics_for_the_synthetic_series(): void
@@ -133,7 +134,7 @@ class PythonSarimaForecastServiceTest extends TestCase
                 return collect($values);
             }
 
-            protected function cachedPythonForecast(string $metric, array $ys, int $forecastMonths): ?array
+            protected function cachedPythonForecast(string $metric, array $ys, int $forecastMonths, int $confidence): ?array
             {
                 $this->pythonForecastCalls++;
 
@@ -175,8 +176,8 @@ class PythonSarimaForecastServiceTest extends TestCase
     {
         $values = range(120, 143);
         $fingerprint = hash('crc32', implode(',', $values));
-        Cache::forget('forecast:python:demand:12:'.$fingerprint);
-        Cache::forget('forecast:queue:demand:12:'.$fingerprint);
+        Cache::forget('forecast:python:demand:12:95:'.$fingerprint);
+        Cache::forget('forecast:queue:demand:12:95:'.$fingerprint);
         Queue::fake();
 
         $service = new class($values) extends ForecastService {
@@ -197,5 +198,90 @@ class PythonSarimaForecastServiceTest extends TestCase
         $this->assertFalse($result['hasData']);
         $this->assertTrue($result['forecastPending']);
         Queue::assertPushed(GenerateForecastSnapshot::class);
+    }
+
+    public function test_refresh_clears_the_selected_snapshot_and_queues_the_requested_confidence(): void
+    {
+        $values = range(120, 143);
+        $fingerprint = hash('crc32', implode(',', $values));
+        $forecastKey = 'forecast:python:demand:12:90:'.$fingerprint;
+        $diagnosticKey = 'forecast:diagnostics:demand:12:'.$fingerprint;
+        $generatedKey = 'forecast:generated:demand:12:90:'.$fingerprint;
+
+        Cache::put($forecastKey, [['value' => 1]]);
+        Cache::put($diagnosticKey, ['diagnostics' => ['aic' => 1]]);
+        Cache::put($generatedKey, now()->toIso8601String());
+        Queue::fake();
+
+        $service = new class($values) extends ForecastService {
+            public function __construct(private array $values) {}
+
+            protected function monthlySeries(string $metric): Collection
+            {
+                return collect($this->values)->values()->map(fn ($value, $index) => [
+                    'date' => now()->startOfMonth()->subMonths(count($this->values) - $index - 1),
+                    'month' => (int) now()->startOfMonth()->subMonths(count($this->values) - $index - 1)->format('n'),
+                    'value' => $value,
+                ]);
+            }
+        };
+
+        $this->assertTrue($service->refreshSnapshot(90, 12, 'demand'));
+        $this->assertFalse(Cache::has($forecastKey));
+        $this->assertFalse(Cache::has($diagnosticKey));
+        $this->assertFalse(Cache::has($generatedKey));
+        Queue::assertPushed(GenerateForecastSnapshot::class, fn ($job) => $job->confidence === 90 && $job->series === $values);
+    }
+
+    public function test_it_does_not_queue_a_seasonal_forecast_with_fewer_than_two_years_of_history(): void
+    {
+        Queue::fake();
+
+        $service = new class extends ForecastService {
+            protected function monthlySeries(string $metric): Collection
+            {
+                return collect(range(1, 23))->map(fn ($value, $index) => [
+                    'date' => now()->startOfMonth()->subMonths(22 - $index),
+                    'month' => (int) now()->startOfMonth()->subMonths(22 - $index)->format('n'),
+                    'value' => $value,
+                ]);
+            }
+        };
+
+        $result = $service->compute(95, 12, 'demand');
+
+        $this->assertFalse($result['forecastPending']);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_snapshot_job_caches_fresh_results_and_releases_the_confidence_lock(): void
+    {
+        config([
+            'services.python_forecast.url' => 'https://sarima.example.test',
+            'services.python_forecast.token' => 'test-token',
+        ]);
+
+        $values = range(120, 143);
+        $fingerprint = hash('crc32', implode(',', $values));
+        $lockKey = 'forecast:queue:demand:12:90:'.$fingerprint;
+        Cache::put($lockKey, true);
+        Http::fake([
+            'https://sarima.example.test/forecast' => Http::response([
+                'forecast' => array_fill(0, 12, ['value' => 125, 'lower' => 100, 'upper' => 150]),
+            ]),
+            'https://sarima.example.test/diagnostics' => Http::response([
+                'diagnostics' => ['selected_order' => 'SARIMA(1,1,1)(1,1,1,12)'],
+            ]),
+        ]);
+
+        $job = new GenerateForecastSnapshot('demand', $values, 12, 12, 90);
+        $job->handle();
+
+        $this->assertFalse(Cache::has($lockKey));
+        $this->assertTrue(Cache::has('forecast:python:demand:12:90:'.$fingerprint));
+        $this->assertTrue(Cache::has('forecast:diagnostics:demand:12:'.$fingerprint));
+        $this->assertTrue(Cache::has('forecast:generated:demand:12:90:'.$fingerprint));
+        Http::assertSent(fn ($request) => $request->url() === 'https://sarima.example.test/forecast'
+            && $request['confidence'] === 90);
     }
 }

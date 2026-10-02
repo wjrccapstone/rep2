@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Http;
 
 class PythonSarimaForecastService
 {
-    public function forecastSeries(array $values, int $steps = 72, int $seasonalPeriod = 12): ?array
+    public function forecastSeries(array $values, int $steps = 72, int $seasonalPeriod = 12, int $confidence = 95): ?array
     {
         $values = array_values(array_map(fn ($value) => (float) $value, $values));
 
@@ -19,6 +19,7 @@ class PythonSarimaForecastService
             'values' => $values,
             'steps' => $steps,
             'seasonal_period' => $seasonalPeriod,
+            'confidence' => $confidence,
         ]);
 
         if (! is_array($payload) || ! isset($payload['forecast']) || ! is_array($payload['forecast'])) {

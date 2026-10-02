@@ -21,24 +21,43 @@ def safe_float(value):
         return 0.0
 
 
-def build_forecast(values, steps, seasonal_period):
+def build_forecast(values, steps, seasonal_period, confidence=95):
     values = np.asarray(values, dtype=float)
     if values.size < max(12, seasonal_period * 2):
         raise ValueError('Not enough data for a seasonal SARIMA fit.')
 
-    order = (1, 1, 1)
-    seasonal_order = (1, 1, 1, seasonal_period)
+    candidate_orders = [
+        ((0, 1, 0), (0, 1, 0, seasonal_period)),
+        ((1, 1, 0), (1, 1, 0, seasonal_period)),
+        ((0, 1, 1), (0, 1, 1, seasonal_period)),
+        ((1, 1, 1), (1, 1, 1, seasonal_period)),
+    ]
 
-    model = SARIMAX(
-        values,
-        order=order,
-        seasonal_order=seasonal_order,
-        enforce_stationarity=False,
-        enforce_invertibility=False,
-    )
-    result = model.fit(disp=False)
+    best = None
+    for order, seasonal_order in candidate_orders:
+        try:
+            model = SARIMAX(
+                values,
+                order=order,
+                seasonal_order=seasonal_order,
+                enforce_stationarity=False,
+                enforce_invertibility=False,
+            )
+            result = model.fit(disp=False)
+            if best is None or result.aic < best['result'].aic:
+                best = {'order': order, 'seasonal_order': seasonal_order, 'result': result}
+        except Exception:
+            continue
+
+    if best is None:
+        raise ValueError('Unable to fit any candidate seasonal SARIMA model.')
+
+    order = best['order']
+    seasonal_order = best['seasonal_order']
+    result = best['result']
     forecast = np.asarray(result.forecast(steps=steps), dtype=float)
-    forecast_ci = np.asarray(result.get_forecast(steps=steps).conf_int(alpha=0.05), dtype=float)
+    alpha = 1 - confidence / 100
+    forecast_ci = np.asarray(result.get_forecast(steps=steps).conf_int(alpha=alpha), dtype=float)
 
     lower = forecast_ci[:, 0]
     upper = forecast_ci[:, 1]
@@ -77,11 +96,12 @@ def main():
         values = payload.get('values', [])
         steps = int(payload.get('steps', 72))
         seasonal_period = int(payload.get('seasonal_period', 12))
+        confidence = int(payload.get('confidence', 95))
 
         if not values:
             raise ValueError('Series is empty.')
 
-        output = build_forecast(values, steps, seasonal_period)
+        output = build_forecast(values, steps, seasonal_period, confidence)
         out_path = Path(args.output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with out_path.open('w', encoding='utf-8') as f:
