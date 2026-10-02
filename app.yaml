@@ -18,7 +18,15 @@ jobs:
   trigger: '*/1 * * * *'
   action:
     execute:
-      command: php artisan queue:work database --stop-when-empty --sleep=3 --tries=2 --timeout=420
+      command: php
+      cli_args:
+        - artisan
+        - queue:work
+        - database
+        - --stop-when-empty
+        - --sleep=3
+        - --tries=2
+        - --timeout=420
       timeout: 8m
 enableDatabase: true
 annotations:
